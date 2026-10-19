@@ -2,7 +2,7 @@
 
 长文本处理：先按段落、再按句子、再按逗号/空格切成不超过 CHUNK_SIZE 的小段，
 多段并行翻译后按原顺序拼回去，段落换行保持不变。
-每一段依次尝试 Google → 微软 → MyMemory，哪个可用就记住哪个，后面优先用它。
+每一段依次尝试 Google 的三个接口 → MyMemory，哪个可用就记住哪个，后面优先用它。
 """
 
 import json
@@ -15,7 +15,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 TIMEOUT = 10
-CHUNK_SIZE = 1500  # 每段最大字符数（Google/微软都能稳定处理）
+CHUNK_SIZE = 1500  # 每段最大字符数
 MYMEMORY_LIMIT = 450  # MyMemory 单次上限约 500 字符
 WORKERS = 3  # 同时翻译的段数，太多容易被限流
 
@@ -78,36 +78,31 @@ def _request(url, data=None, headers=None):
         return resp.read().decode("utf-8")
 
 
+def _google_t(host, client, text, target):
+    url = f"https://{host}/translate_a/t?" + urllib.parse.urlencode(
+        {"client": client, "sl": "auto", "tl": target}
+    )
+    body = urllib.parse.urlencode({"q": text}).encode("utf-8")
+    data = json.loads(_request(url, body, {"Content-Type": "application/x-www-form-urlencoded"}))
+    item = data[0]  # 自动识别时是 [译文, 源语言]，否则直接是译文
+    return item[0] if isinstance(item, list) else item
+
+
 def translate_google(text, target):
+    return _google_t("translate.google.com", "gtx", text, target)
+
+
+def translate_google2(text, target):
+    return _google_t("clients5.google.com", "dict-chrome-ex", text, target)
+
+
+def translate_google3(text, target):
     url = "https://translate.googleapis.com/translate_a/single?" + urllib.parse.urlencode(
         {"client": "gtx", "sl": "auto", "tl": target, "dt": "t"}
     )
     body = urllib.parse.urlencode({"q": text}).encode("utf-8")
     data = json.loads(_request(url, body, {"Content-Type": "application/x-www-form-urlencoded"}))
     return "".join(part[0] for part in data[0] if part[0])
-
-
-_ms_token = {"value": None, "time": 0.0}
-_ms_lock = threading.Lock()
-_MS_LANG = {"zh-CN": "zh-Hans", "zh-TW": "zh-Hant"}
-
-
-def _microsoft_token():
-    with _ms_lock:
-        if not _ms_token["value"] or time.time() - _ms_token["time"] > 8 * 60:
-            _ms_token["value"] = _request("https://edge.microsoft.com/translate/auth").strip()
-            _ms_token["time"] = time.time()
-        return _ms_token["value"]
-
-
-def translate_microsoft(text, target):
-    url = "https://api-edge.cognitive.microsofttranslator.com/translate?" + urllib.parse.urlencode(
-        {"api-version": "3.0", "to": _MS_LANG.get(target, target)}
-    )
-    body = json.dumps([{"Text": text}]).encode("utf-8")
-    headers = {"Authorization": "Bearer " + _microsoft_token(), "Content-Type": "application/json"}
-    data = json.loads(_request(url, body, headers))
-    return data[0]["translations"][0]["text"]
 
 
 def _guess_source(text):
@@ -136,7 +131,7 @@ def translate_mymemory(text, target):
     return " ".join(out)
 
 
-ENGINES = [translate_google, translate_microsoft, translate_mymemory]
+ENGINES = [translate_google, translate_google2, translate_google3, translate_mymemory]
 _preferred = {"engine": ENGINES[0]}
 
 
