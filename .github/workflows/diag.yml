@@ -14,6 +14,3 @@ jobs:
           python-version: "3.12"
       - run: pip install pillow
       - run: python diag/ms.py
-      - run: |
-          Add-WindowsCapability -Online -Name "Language.OCR~~~zh-CN~0.0.1.0" | Out-Null
-          python diag/zh.py
