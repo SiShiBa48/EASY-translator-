@@ -5,7 +5,6 @@ import threading
 
 MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, MOD_NOREPEAT = 0x1, 0x2, 0x4, 0x8, 0x4000
 WM_HOTKEY, WM_QUIT = 0x0312, 0x0012
-_HOTKEY_ID = 1
 
 # Tk 修饰键名称 -> (Win32 修饰符, 显示名)
 MODIFIER_KEYS = {
@@ -22,42 +21,45 @@ def format_hotkey(mods, key_name):
     return "+".join(parts + [key_name])
 
 
-class GlobalHotkey:
+class HotkeyManager:
+    """在一个后台线程里注册多个全局快捷键。"""
+
     def __init__(self):
         self._thread = None
         self._thread_id = None
 
-    def register(self, mods, vk, callback):
-        """注册快捷键（会先注销旧的）。成功返回 True，被其他程序占用等情况返回 False。"""
-        self.unregister()
+    def set_all(self, bindings):
+        """bindings: {名称: (mods, vk, callback)}。会先注销旧的全部快捷键。
+        返回 {名称: 是否注册成功}（失败一般是被其他程序占用）。"""
+        self.stop()
         ready = threading.Event()
-        result = {}
+        results = {}
 
         def run():
+            import ctypes.wintypes
+
             user32 = ctypes.windll.user32
             self._thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
-            ok = user32.RegisterHotKey(None, _HOTKEY_ID, mods | MOD_NOREPEAT, vk)
-            result["ok"] = bool(ok)
+            callbacks = {}
+            for hid, (name, (mods, vk, cb)) in enumerate(bindings.items(), start=1):
+                ok = bool(user32.RegisterHotKey(None, hid, mods | MOD_NOREPEAT, vk))
+                results[name] = ok
+                if ok:
+                    callbacks[hid] = cb
             ready.set()
-            if not ok:
-                return
             msg = ctypes.wintypes.MSG()
             while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-                if msg.message == WM_HOTKEY:
-                    callback()
-            user32.UnregisterHotKey(None, _HOTKEY_ID)
-
-        import ctypes.wintypes  # noqa: F401  仅 Windows 可用
+                if msg.message == WM_HOTKEY and msg.wParam in callbacks:
+                    callbacks[msg.wParam]()
+            for hid in callbacks:
+                user32.UnregisterHotKey(None, hid)
 
         self._thread = threading.Thread(target=run, daemon=True)
         self._thread.start()
         ready.wait(3)
-        if not result.get("ok"):
-            self._thread = self._thread_id = None
-            return False
-        return True
+        return results
 
-    def unregister(self):
+    def stop(self):
         if self._thread and self._thread_id:
             ctypes.windll.user32.PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
             self._thread.join(2)
