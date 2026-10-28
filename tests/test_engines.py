@@ -39,3 +39,12 @@ assert engines.auto_target("Hello world") == "zh-CN"
 assert engines.auto_target("我在用 Python 写一个 translator") == "en"
 assert engines.auto_target("This is a long English sentence with one 词") == "zh-CN"
 print("engines OK")
+
+assert engines.single_english_word(" hello ") == "hello"
+assert engines.single_english_word("Apple.") == "Apple"
+assert engines.single_english_word("well-known") == "well-known"
+assert engines.single_english_word("don't") == "don't"
+assert engines.single_english_word("hello world") is None
+assert engines.single_english_word("你好") is None
+assert engines.single_english_word("hello，世界") is None
+print("single word OK")

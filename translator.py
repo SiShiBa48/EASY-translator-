@@ -144,6 +144,9 @@ class App:
         self.src.bind("<<Modified>>", self.on_modified)
         self.src.bind("<Control-Return>", lambda e: (self.translate_now(force=True), "break")[1])
 
+        # 单个英文单词时显示音标，平时隐藏
+        self.phonetic = ttk.Label(root, font=("Segoe UI", 11), foreground="#2563eb")
+
         self.dst = tk.Text(root, height=8, wrap="word", font=font, bg="#f5f5f5")
         self.dst.pack(fill="both", expand=True, **pad)
         self.dst.configure(state="disabled")
@@ -186,6 +189,7 @@ class App:
             return
         self.last_request = (text, choice)
         self.request_id += 1
+        self.phonetic.pack_forget()
         if not text:
             self.set_output("")
             self.status.configure(text="")
@@ -206,8 +210,21 @@ class App:
         try:
             result, status = engines.translate(text, target, progress), self.direction
         except Exception as e:  # noqa: BLE001
-            result, status = str(e), "出错"
+            self.root.after(0, self.show_result, rid, str(e), "出错")
+            return
         self.root.after(0, self.show_result, rid, result, status)
+
+        # 原文或译文是单个英文单词时，再去查音标
+        word = engines.single_english_word(text) or engines.single_english_word(result)
+        if word:
+            phonetic = engines.lookup_phonetic(word)
+            if phonetic:
+                self.root.after(0, self.show_phonetic, rid, f"{word}   {phonetic}")
+
+    def show_phonetic(self, rid, text):
+        if rid == self.request_id:
+            self.phonetic.configure(text=text)
+            self.phonetic.pack(before=self.dst, anchor="w", padx=12)
 
     def show_progress(self, rid, done, total):
         if rid == self.request_id:

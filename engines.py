@@ -181,3 +181,58 @@ def translate(text, target, progress=None):
         return one(chunks[0])
     with ThreadPoolExecutor(WORKERS) as pool:
         return "".join(pool.map(one, chunks))
+
+
+# ---------------- 单词音标 ----------------
+_WORD = re.compile(r"[A-Za-z]+(?:['-][A-Za-z]+)*")
+_phonetic_cache = {}
+
+
+def single_english_word(text):
+    """是单个英文单词就返回它（去掉首尾标点），否则返回 None。"""
+    word = text.strip().strip(".,!?;:\"'()（）。，！？；：“”‘’")
+    return word if _WORD.fullmatch(word) else None
+
+
+def _phonetic_youdao(word):
+    url = "https://dict.youdao.com/jsonapi?" + urllib.parse.urlencode({"q": word})
+    info = json.loads(_request(url))["ec"]["word"][0]
+    uk, us = info.get("ukphone"), info.get("usphone")
+    parts = [f"{name} /{p}/" for name, p in (("英", uk), ("美", us)) if p]
+    return "   ".join(parts) or None
+
+
+def _phonetic_freedict(word):
+    url = "https://api.dictionaryapi.dev/api/v2/entries/en/" + urllib.parse.quote(word)
+    entries = json.loads(_request(url))
+    uk = us = other = None
+    for entry in entries:
+        for p in entry.get("phonetics", []):
+            text, audio = p.get("text"), p.get("audio", "")
+            if not text:
+                continue
+            if audio.endswith("-uk.mp3"):
+                uk = uk or text
+            elif audio.endswith("-us.mp3"):
+                us = us or text
+            else:
+                other = other or text
+        other = other or entry.get("phonetic")
+    parts = [f"{name} {p}" for name, p in (("英", uk), ("美", us)) if p]
+    return "   ".join(parts) or other
+
+
+def lookup_phonetic(word):
+    """查英文单词的音标，查不到返回 None。"""
+    key = word.lower()
+    if key not in _phonetic_cache:
+        result = None
+        for source in (_phonetic_youdao, _phonetic_freedict):
+            try:
+                result = source(key)
+            except Exception:  # noqa: BLE001
+                continue
+            if result:
+                break
+        _phonetic_cache[key] = result
+    return _phonetic_cache[key]

@@ -70,4 +70,14 @@ print(f"long translate: {time.time() - t:.1f}s, chunks={progress[-1] if progress
 print("head:", out[:80])
 print("tail:", out[-60:])
 assert len(out) > 500 and "\n\n" in out
+# ---- 音标 ----
+for word in ("hello", "apple", "pronunciation"):
+    for source in (engines._phonetic_youdao, engines._phonetic_freedict):
+        try:
+            print(f"phonetic {source.__name__}({word}):", source(word))
+        except Exception as e:  # noqa: BLE001
+            print(f"phonetic {source.__name__}({word}): FAILED {e!r}")
+ph = engines.lookup_phonetic("hello")
+print("lookup_phonetic(hello):", ph)
+assert ph and "/" in ph
 print("ALL OK")
